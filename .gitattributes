@@ -1,2 +1,392 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+import turtle
+import math
+import random
+import time
+
+# --- Configuración de pantalla ---
+wn = turtle.Screen()
+wn.title("RIP - Multijefes Animados")
+wn.bgcolor("black")
+wn.setup(600, 600)
+wn.tracer(0)
+
+# --- Variables principales ---
+pivot_x, pivot_y = 0, 180
+rope_length = 200
+angle = 0
+angle_speed = 2
+score = 0
+frame = 0
+game_over = False
+moving_left = False
+moving_right = False
+
+# --- Jefes configurados con vida reducida ---
+bosses = [
+    {"turtle": turtle.Turtle(), "life": 8, "max_life": 8, "pos": (200, 100), "anim": True},
+    {"turtle": turtle.Turtle(), "life": 8, "max_life": 8, "pos": (-200, 100), "anim": False}
+]
+current_boss = 0
+attack_history = []
+
+# --- Jugador (círculo) ---
+fig = turtle.Turtle()
+fig.shape("circle")
+fig.color("white")
+fig.penup()
+fig.shapesize(1.5)
+
+line = turtle.Turtle()
+line.hideturtle()
+line.color("gray")
+line.pensize(4)
+
+# --- Proyectil mágico ---
+projectile = turtle.Turtle()
+projectile.shape("triangle")
+projectile.color("yellow")
+projectile.penup()
+projectile.hideturtle()
+
+# --- Obstáculos ---
+obstacles = []
+
+# --- Barra de vida ---
+health_bar = turtle.Turtle()
+health_bar.hideturtle()
+health_bar.color("red")
+health_bar.penup()
+
+# --- Score visual ---
+score_display = turtle.Turtle()
+score_display.hideturtle()
+score_display.color("white")
+score_display.penup()
+score_display.goto(-270, 260)
+
+# --- Texto para intro y mensajes ---
+message_writer = turtle.Turtle()
+message_writer.hideturtle()
+message_writer.color("white")
+message_writer.penup()
+
+# --- Funciones de dibujo y control ---
+def setup_boss(b):
+    t = b["turtle"]
+    t.hideturtle()
+    t.penup()
+    t.shape("square")
+    t.color("purple" if current_boss == 0 else "darkgreen")
+    t.shapesize(stretch_wid=5, stretch_len=3)
+    t.goto(*b["pos"])
+    t.showturtle()
+
+def setup_all_bosses():
+    for b in bosses:
+        setup_boss(b)
+        b["base_y"] = b["pos"][1]  # para animación
+
+def draw_rope():
+    rad = math.radians(angle)
+    x = pivot_x + rope_length * math.sin(rad)
+    y = pivot_y - rope_length * math.cos(rad)
+    fig.goto(x, y)
+    line.clear()
+    line.penup()
+    line.goto(pivot_x, pivot_y)
+    line.pendown()
+    line.goto(x, y)
+
+def draw_health(b):
+    t, l, m = b["turtle"], b["life"], b["max_life"]
+    health_bar.clear()
+    if l > 0:
+        health_bar.goto(t.xcor() - 30, t.ycor() + 60)
+        health_bar.pendown()
+        health_bar.color("red")
+        health_bar.begin_fill()
+        width = 60 * (l / m)
+        for angle_dir in [0, -90, -180, -270]:
+            health_bar.setheading(angle_dir)
+            health_bar.forward(width if angle_dir % 180 == 0 else 10)
+        health_bar.end_fill()
+        health_bar.penup()
+
+def update_score():
+    score_display.clear()
+    score_display.write(f"Puntaje: {score}", font=("Arial", 16, "bold"))
+
+# --- Movimiento continuo del círculo ---
+def hold_left():
+    global angle
+    if not game_over and moving_left:
+        angle -= angle_speed
+        if angle < -70:  # límite para no subir demasiado
+            angle = -70
+        draw_rope()
+        wn.update()
+        wn.ontimer(hold_left, 20)
+
+def hold_right():
+    global angle
+    if not game_over and moving_right:
+        angle += angle_speed
+        if angle > 70:
+            angle = 70
+        draw_rope()
+        wn.update()
+        wn.ontimer(hold_right, 20)
+
+def start_left():
+    global moving_left
+    moving_left = True
+    hold_left()
+
+def stop_left():
+    global moving_left
+    moving_left = False
+
+def start_right():
+    global moving_right
+    moving_right = True
+    hold_right()
+
+def stop_right():
+    global moving_right
+    moving_right = False
+
+# --- Animación del jefe actual ---
+def animate_boss():
+    b = bosses[current_boss]
+    if b["anim"]:
+        offset = 5 * math.sin(frame * 0.1)
+        b["turtle"].sety(b["base_y"] + offset)
+    wn.ontimer(animate_boss, 50)
+
+# --- Obstáculos y puntuación ---
+def create_obstacle():
+    o = turtle.Turtle()
+    o.shape("square")
+    o.color("red")
+    o.shapesize(stretch_wid=1, stretch_len=4)
+    o.penup()
+    o.goto(random.randint(-250, 250), -300)
+    obstacles.append(o)
+
+def move_obstacles():
+    global score
+    for o in obstacles[:]:
+        o.sety(o.ycor() + 4)
+        if o.ycor() > 350:
+            o.hideturtle()
+            obstacles.remove(o)
+            score += 1
+            update_score()
+            # Ataque cada 8 puntos
+            if score % 8 == 0 and score not in attack_history:
+                attack_history.append(score)
+                launch_attack()
+
+# --- Ataques mágicos ---
+def launch_attack():
+    b = bosses[current_boss]
+    projectile.goto(fig.xcor(), fig.ycor())
+    projectile.setheading(projectile.towards(b["turtle"]))
+    projectile.showturtle()
+    move_projectile()
+
+def move_projectile():
+    b = bosses[current_boss]
+    projectile.forward(15)
+    if projectile.distance(b["turtle"]) < 20:
+        projectile.hideturtle()
+        b["life"] -= 1
+        draw_health(b)
+        if b["life"] == 0:
+            next_boss()
+    else:
+        wn.ontimer(move_projectile, 50)
+
+# --- Colisiones ---
+def check_collision():
+    fx, fy = fig.pos()
+    for o in obstacles:
+        if abs(fx - o.xcor()) < 50 and abs(fy - o.ycor()) < 20:
+            return True
+    return False
+
+# --- Cambiar de jefe ---
+def next_boss():
+    global current_boss
+    for o in obstacles:
+        o.hideturtle()
+    obstacles.clear()
+    bosses[current_boss]["turtle"].hideturtle()
+    current_boss += 1
+    if current_boss < len(bosses):
+        setup_boss(bosses[current_boss])
+        draw_health(bosses[current_boss])
+    else:
+        win_game()
+
+# --- Game Over o Victoria ---
+def show_game_over():
+    fig.hideturtle()
+    for o in obstacles:
+        o.hideturtle()
+    if current_boss < len(bosses):
+        bosses[current_boss]["turtle"].hideturtle()
+    health_bar.clear()
+    projectile.hideturtle()
+    go = turtle.Turtle()
+    go.hideturtle()
+    go.color("white")
+    go.penup()
+    go.goto(0, 0)
+    go.write("💀 GAME OVER 💀", align="center", font=("Arial", 24, "bold"))
+
+def win_game():
+    fig.hideturtle()
+    for o in obstacles:
+        o.hideturtle()
+    if bosses:
+        bosses[-1]["turtle"].hideturtle()
+    projectile.hideturtle()
+    health_bar.clear()
+    win = turtle.Turtle()
+    win.hideturtle()
+    win.color("yellow")
+    win.penup()
+    win.goto(0, 0)
+    win.write("🎉 ¡GANASTE TODO! 🎉", align="center", font=("Arial", 20, "bold"))
+
+# --- Pantalla de inicio con nombre e intro ---
+def start_screen():
+    wn.bgcolor("black")
+    wn.title("RIP - Multijefes Animados")
+    message_writer.clear()
+    message_writer.color("white")
+    message_writer.goto(0, 120)
+    message_writer.write("Bienvenido a RIP", align="center", font=("Arial", 30, "bold"))
+    
+    player_name = wn.textinput("Nombre del jugador", "¿Cuál es tu nombre, alma atrapada?")
+    if not player_name:
+        player_name = "Alma"
+    
+    intro_lines = [
+        f"{player_name}, eres un alma atrapada en el limbo.",
+        "Para alcanzar la luz, debes superar a los jefes oscuros.",
+        "Usa las flechas izquierda y derecha para balancearte y esquivar.",
+        "¡Prepárate para la batalla!"
+    ]
+    
+    y_start = 60
+    spacing = 30
+    for i, line in enumerate(intro_lines):
+        message_writer.goto(0, y_start - i * spacing)
+        message_writer.write(line, align="center", font=("Arial", 16, "normal"))
+    
+    wn.update()
+    time.sleep(5)
+    message_writer.clear()
+    
+    # Aquí configuramos el juego (jefes, jugador, etc)
+    setup_game()
+    # Iniciamos la lógica y animaciones
+    game_loop()
+    animate_boss()
+
+# --- Setup inicial después de la intro ---
+def setup_game():
+    global angle, score, frame, game_over, moving_left, moving_right, current_boss, attack_history
+    wn.bgcolor("black")
+    wn.tracer(0)
+    wn.setup(600, 600)
+    wn.title("RIP - Multijefes Animados")
+
+    # Reset variables
+    angle = 0
+    score = 0
+    frame = 0
+    game_over = False
+    moving_left = False
+    moving_right = False
+    current_boss = 0
+    attack_history.clear()
+
+    # Reset jugador
+    fig.reset()
+    fig.shape("circle")
+    fig.color("white")
+    fig.penup()
+    fig.shapesize(1.5)
+
+    line.reset()
+    line.hideturtle()
+    line.color("gray")
+    line.pensize(4)
+
+    projectile.reset()
+    projectile.shape("triangle")
+    projectile.color("yellow")
+    projectile.penup()
+    projectile.hideturtle()
+
+    health_bar.clear()
+    health_bar.hideturtle()
+
+    score_display.clear()
+    score_display.hideturtle()
+    score_display.color("white")
+    score_display.penup()
+    score_display.goto(-270, 260)
+    score_display.showturtle()
+
+    # Setup jefes con vida a la mitad (8)
+    for b in bosses:
+        b["life"] = b["max_life"]  # 8
+        setup_boss(b)
+        b["base_y"] = b["pos"][1]
+
+    obstacles.clear()
+
+    # Controles
+    wn.listen()
+    wn.onkeypress(start_left, "Left")
+    wn.onkeyrelease(stop_left, "Left")
+    wn.onkeypress(start_right, "Right")
+    wn.onkeyrelease(stop_right, "Right")
+
+    draw_rope()
+    update_score()
+    draw_health(bosses[current_boss])
+    wn.update()
+
+# --- Loop principal ---
+def game_loop():
+    global frame, game_over
+    if not game_over:
+        draw_rope()
+        if frame % 40 == 0:
+            create_obstacle()
+        move_obstacles()
+        draw_health(bosses[current_boss])
+        if check_collision():
+            game_over = True
+            show_game_over()
+            return
+        frame += 1
+        wn.update()
+        wn.ontimer(game_loop, 30)
+
+# --- Controles de teclado para mover el péndulo ---
+wn.listen()
+wn.onkeypress(start_left, "Left")
+wn.onkeyrelease(stop_left, "Left")
+wn.onkeypress(start_right, "Right")
+wn.onkeyrelease(stop_right, "Right")
+
+# --- Iniciar juego con pantalla de inicio ---
+start_screen()
+
+wn.mainloop()
